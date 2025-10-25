@@ -1,0 +1,7 @@
+{
+  "name": "AI Search Simulator Pro",
+  "description": "An advanced tool to simulate Google searches from different locations and devices, enhanced with AI-powered SEO analysis, a helpful chatbot, and image editing capabilities. All in Portuguese.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
