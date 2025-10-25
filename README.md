@@ -1,7 +1,7 @@
 <div align="center">
-<img width="auto" height="auto" alt="GHBanner" src="https://github.com/user-attachments/assets/503e3f95-f9f9-42ed-b2ed-206ed514590b"/>
+<img width="auto" height="250" alt="GHBanner" src="https://github.com/user-attachments/assets/503e3f95-f9f9-42ed-b2ed-206ed514590b"/>
 </div>
-![image](https://github.com/user-attachments/assets/503e3f95-f9f9-42ed-b2ed-206ed514590b)
+
 
 
 
