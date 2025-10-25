@@ -1,10 +1,4 @@
-<div align="center">
-<img width="auto" height="auto" alt="GHBanner" src="https://github.com/user-attachments/assets/016709c6-ce29-43b2-917a-1a510cfdaf62" />
-</div>
 
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
 ![image](https://github.com/user-attachments/assets/016709c6-ce29-43b2-917a-1a510cfdaf62)
 
 # AI Search Simulator Pro
