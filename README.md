@@ -1,20 +1,18 @@
 <div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
-
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/drive/1rQnBnC4qUtIjg17AHWUCvdOl07HZgIPC
-
-## Run Locally
-
-**Prerequisites:**  Node.js
+# 🤖 AI Search Simulator Pro
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+O **AI Search Simulator Pro** é uma ferramenta interativa de busca com integração a simulações baseadas em IA.  
+Desenvolvido em **React + TypeScript + Vite**, o app oferece uma experiência fluida e visual moderna, ideal para testes e experimentos com algoritmos de busca, APIs e simulação de comportamento inteligente.
+
+---
+
+## 🧠 Funcionalidades Principais
+
+- 🔍 **Simulação de Pesquisa de Palavras-Chave:** execute buscas inteligentes com base em prompts e filtros.
+- 🧩 **Componentes Dinâmicos:** interface modular com atualização em tempo real.
+- ⚡ **Vite + React:** ambiente rápido e moderno para desenvolvimento front-end.
+- 🌐 **Hospedagem Automática na Vercel:** cada atualização no GitHub gera automaticamente uma nova versão online.
+- 🎨 **Design Limpo e Responsivo:** pensado para desktop e mobile.
