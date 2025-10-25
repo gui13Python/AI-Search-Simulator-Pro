@@ -1,29 +1,20 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-![image](https://github.com/user-attachments/assets/016709c6-ce29-43b2-917a-1a510cfdaf62)
+# Run and deploy your AI Studio app
 
-# AI Search Simulator Pro
+This contains everything you need to run your app locally.
 
-**AI Search Simulator Pro** é uma ferramenta inovadora de simulação de buscas por IA, projetada para ajudar profissionais de marketing, SEO e desenvolvedores a testar e otimizar estratégias de pesquisa sem depender de APIs reais ou dados ao vivo. Inspirado em ferramentas como o Ubersuggest, este app simula cenários de pesquisa de palavras-chave, análise de concorrentes e geração de ideias de conteúdo, utilizando modelos de IA avançados para fornecer resultados realistas e acionáveis.
+View your app in AI Studio: https://ai.studio/apps/drive/1rQnBnC4qUtIjg17AHWUCvdOl07HZgIPC
 
-## Funcionalidades Principais
-- **Simulação de Pesquisa de Palavras-Chave**: Insira uma semente de palavra-chave e obtenha sugestões inteligentes, incluindo volume de busca estimado, dificuldade de SEO e ideias relacionadas.
-- **Análise de Concorrentes**: Simule auditorias de sites, identificando "páginas de topo" fictícias, backlinks e métricas de tráfego.
-- **Geração de Ideias de Conteúdo**: Crie outlines de artigos, títulos otimizados e snippets de meta-descrições baseados em tendências simuladas.
-- **Modo Pro**: Recursos avançados como exportação de relatórios em CSV/JSON, integração com LLMs personalizados e simulações em lote.
-- **Interface Intuitiva**: Design minimalista com dashboard interativo, suporte a múltiplos idiomas e modo offline.
+## Run Locally
 
-## Como Funciona (Similar ao Ubersuggest)
-Assim como o Ubersuggest, que usa dados de busca para sugerir keywords com métricas como CPC e volume mensal, nosso app emprega algoritmos de IA para "prever" resultados:
-1. **Entrada de Seed**: Digite uma palavra-chave (ex: "marketing digital").
-2. **Geração IA**: O modelo simula consultas em tempo real, produzindo variações, long-tails e dados estimados.
-3. **Análise e Insights**: Receba relatórios com recomendações personalizadas.
-4. **Iteração**: Refine simulações com filtros por localização, dispositivo ou nicho.
+**Prerequisites:**  Node.js
 
-## Instalação e Uso
-- **Requisitos**: Python 3.8+, bibliotecas como `openai` ou `huggingface` (configuráveis).
-- **Instalação Rápida**:
-  ```bash
-  git clone https://github.com/seuusuario/ai-search-simulator-pro.git
-  cd ai-search-simulator-pro
-  pip install -r requirements.txt
-  python app.py --mode pro
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
