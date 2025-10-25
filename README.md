@@ -1,5 +1,5 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6"/>
+<img width="1200" height="475" alt="GHBanner" src="https://assets.grok.com/users/74b79ea2-26bf-4ecb-856f-78cdd2a31472/generated/945d49d4-0dfe-4b67-b6ca-b8202984ef09/image.jpg"/>
 </div>
 
 # 🤖 AI Search Simulator Pro
