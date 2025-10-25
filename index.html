@@ -3,18 +3,24 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌐</text></svg>" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Search Simulator Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      /* Simple scrollbar styling for a more modern look */
+      :root {
+        font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+        font-weight: 400;
+        color-scheme: light dark;
+      }
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
       }
       ::-webkit-scrollbar-track {
         background: #f1f1f1;
+        border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb {
         background: #888;
@@ -23,25 +29,1349 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #555;
       }
+       body {
+         -webkit-font-smoothing: antialiased;
+         -moz-osx-font-smoothing: grayscale;
+       }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.26.0",
-    "react-markdown": "https://aistudiocdn.com/react-markdown@^10.1.0",
-    "chart.js": "https://aistudiocdn.com/chart.js@^4.4.3",
-    "react-chartjs-2": "https://aistudiocdn.com/react-chartjs-2@^5.2.0",
-    "date-fns": "https://aistudiocdn.com/date-fns@^3.6.0",
-    "chartjs-adapter-date-fns": "https://aistudiocdn.com/chartjs-adapter-date-fns@^3.0.0"
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "@google/genai": "https://esm.sh/@google/genai@0.2.1",
+    "react-markdown": "https://esm.sh/react-markdown@9.0.1",
+    "chart.js": "https://esm.sh/chart.js@4.4.2/auto",
+    "react-chartjs-2": "https://esm.sh/react-chartjs-2@5.2.0",
+    "date-fns": "https://esm.sh/date-fns@3.6.0",
+    "chartjs-adapter-date-fns": "https://esm.sh/chartjs-adapter-date-fns@3.0.0"
   }
 }
 </script>
 </head>
   <body class="bg-gray-100 dark:bg-gray-900">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
-</html>
+    <script type="module">
+// --- Start of combined application script ---
+
+// === External Imports ===
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import ReactDOM from 'react-dom/client';
+import { GoogleGenAI, Modality } from "@google/genai";
+import ReactMarkdown from 'react-markdown';
+import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale } from 'chart.js';
+import 'chartjs-adapter-date-fns';
+import { subDays, subMonths, subYears, parseISO } from 'date-fns';
+
+// === Start of types.ts content ===
+interface SearchParameters {
+  query: string;
+  location: string;
+  device: string;
+  language: string;
+  country: string;
+  googleDomain: string;
+}
+
+interface GroundingChunk {
+  web?: {
+    uri: string;
+    title: string;
+  };
+  maps?: {
+    uri: string;
+    title: string;
+  };
+}
+
+interface TrendDataPoint {
+  date: string; // YYYY-MM-DD
+  value: number;
+}
+
+interface AdResult {
+  title: string;
+  displayUrl: string;
+  destinationUrl: string;
+  description: string;
+}
+
+interface OrganicResult {
+  title: string;
+  displayUrl: string;
+  destinationUrl: string;
+  description: string;
+}
+
+interface SimulatedSERP {
+  ads: AdResult[];
+  organic: OrganicResult[];
+}
+
+interface SearchResult {
+  summary: string;
+  sources: GroundingChunk[];
+  searchVolume?: string;
+  cpc?: {
+    local?: string;
+    usd?: string;
+  };
+  historicalData?: TrendDataPoint[];
+  serp?: SimulatedSERP;
+}
+
+type Language = 'pt' | 'en' | 'es';
+
+interface ChatMessage {
+  role: 'user' | 'model';
+  content: string;
+}
+
+interface UserLocation {
+  latitude: number;
+  longitude: number;
+}
+
+
+// === Start of constants.ts content ===
+const HOTMART_MARKETS = [
+  { value: 'br', label: 'Brasil', domain: 'google.com.br' },
+  { value: 'mx', label: 'México', domain: 'google.com.mx' },
+  { value: 'co', label: 'Colômbia', domain: 'google.com.co' },
+  { value: 'es', label: 'Espanha', domain: 'google.es' },
+  { value: 'cl', label: 'Chile', domain: 'google.cl' },
+  { value: 'pe', label: 'Peru', domain: 'google.com.pe' },
+  { value: 'ar', label: 'Argentina', domain: 'google.com.ar' },
+  { value: 'us', label: 'Estados Unidos', domain: 'google.com' },
+  { value: 'pt', label: 'Portugal', domain: 'google.pt' },
+  { value: 'ww', label: 'Mundo (Worldwide)', domain: 'google.com' },
+];
+
+const CURRENCY_MAP = {
+    br: { code: 'BRL', name: 'Real Brasileiro' },
+    mx: { code: 'MXN', name: 'Peso Mexicano' },
+    co: { code: 'COP', name: 'Peso Colombiano' },
+    es: { code: 'EUR', name: 'Euro' },
+    cl: { code: 'CLP', name: 'Peso Chileno' },
+    pe: { code: 'PEN', name: 'Sol Peruano' },
+    ar: { code: 'ARS', name: 'Peso Argentino' },
+    us: { code: 'USD', name: 'Dólar Americano' },
+    pt: { code: 'EUR', name: 'Euro' },
+    ww: { code: 'USD', name: 'Dólar Americano' },
+};
+
+const LANGUAGES = [
+  { value: 'pt', label: 'Português' },
+  { value: 'en', label: 'Inglês' },
+  { value: 'es', label: 'Espanhol' },
+  { value: 'de', label: 'Alemão' },
+  { value: 'fr', label: 'Francês' },
+];
+
+const DEVICES = [
+    { value: 'all', labelKey: 'device.all' },
+    { value: 'desktop', labelKey: 'device.desktop' },
+    { value: 'mobile', labelKey: 'device.mobile' },
+    { value: 'tablet', labelKey: 'device.tablet' },
+];
+
+
+// === Start of translations.ts content ===
+const translations = {
+  pt: {
+    // Header
+    'header.title': 'AI Search Simulator Pro',
+    'header.searchTab': 'Busca',
+    'header.chatTab': 'Chat',
+    'header.imageEditorTab': 'Editor de Imagem',
+    // Search Form
+    'searchForm.queryLabel': 'Termo de Busca',
+    'searchForm.queryPlaceholder': 'Ex: curso de marketing digital',
+    'searchForm.marketLabel': 'Mercado (País)',
+    'searchForm.domainLabel': 'Domínio do Google',
+    'searchForm.deviceLabel': 'Dispositivo',
+    'searchForm.languageLabel': 'Idioma',
+    'searchForm.submitButton': 'Analisar Mercado',
+    'searchForm.submitButtonLoading': 'Analisando Mercado...',
+    // Device options
+    'device.all': 'Todos',
+    'device.desktop': 'Desktop',
+    'device.mobile': 'Celular',
+    'device.tablet': 'Tablet',
+    // Results Display
+    'resultsDisplay.marketAnalysisTitle': 'Análise de Mercado para',
+    'resultsDisplay.selectedMarket': 'Mercado selecionado',
+    'resultsDisplay.searchVolumeLabel': 'Volume de Busca Mensal (Estimado)',
+    'resultsDisplay.cpcLabel': 'Custo Por Clique (CPC Estimado)',
+    'resultsDisplay.summaryTitle': 'Resumo dos Resultados Simulados',
+    'resultsDisplay.sourcesTitle': 'Principais Fontes Encontradas',
+    'resultsDisplay.seoAnalysisButton': 'Gerar Análise de SEO com IA',
+    'resultsDisplay.seoAnalysisButtonLoading': 'Analisando...',
+    'resultsDisplay.adsTitle': 'Anúncios',
+    'resultsDisplay.organicResultsTitle': 'Resultados Orgânicos',
+    'resultsDisplay.adLabel': 'Anúncio',
+    // Trend Chart
+    'trendChart.title': 'Tendência de Busca (Últimos 5 Anos)',
+    'trendChart.filter5Y': '5A',
+    'trendChart.filter1Y': '1A',
+    'trendChart.filter30D': '30D',
+    'trendChart.filterCustom': 'Customizado',
+    'trendChart.volumeAxisLabel': 'Volume de Busca',
+    'trendChart.noData': 'Não foi possível carregar os dados de tendência para este termo.',
+    // SEO Analysis
+    'seoAnalysis.title': 'Análise de SEO com IA',
+    // Chatbot
+    'chatbot.placeholder': 'Digite sua mensagem...',
+    'chatbot.sendButton': 'Enviar',
+    // Image Editor
+    'imageEditor.title': 'Editor de Imagem com IA',
+    'imageEditor.subtitle': 'Carregue uma imagem e descreva a edição que você deseja.',
+    'imageEditor.uploadButton': 'Carregar um arquivo',
+    'imageEditor.fileTypes': 'PNG, JPG, GIF até 10MB',
+    'imageEditor.promptPlaceholder': 'Ex: adicione um filtro retrô, remova o fundo...',
+    'imageEditor.submitButton': 'Aplicar Edição com IA',
+    'imageEditor.submitButtonLoading': 'Editando...',
+    'imageEditor.originalLabel': 'Original',
+    'imageEditor.editedLabel': 'Editada',
+    'imageEditor.originalPlaceholder': 'Sua imagem aparecerá aqui',
+    'imageEditor.editedPlaceholder': 'Sua imagem editada aparecerá aqui',
+    // App & Common
+    'app.loading.search': 'Simulando busca no mercado alvo...',
+    'app.loading.analysis': 'Gerando análise de SEO...',
+    'app.loading.image': 'Processando edição...',
+    'app.welcome.title': 'Bem-vindo ao AI Search Simulator Pro',
+    'app.welcome.subtitle': 'Use o formulário para analisar um termo de busca em mercados específicos e obter insights de SEO com o poder da IA.',
+    'app.error.search': 'Falha na busca',
+    'app.error.analysis': 'Falha na análise',
+    'app.error.imageEdit': 'Falha na edição',
+  },
+  en: {
+    // Header
+    'header.title': 'AI Search Simulator Pro',
+    'header.searchTab': 'Search',
+    'header.chatTab': 'Chat',
+    'header.imageEditorTab': 'Image Editor',
+    // Search Form
+    'searchForm.queryLabel': 'Search Term',
+    'searchForm.queryPlaceholder': 'E.g., digital marketing course',
+    'searchForm.marketLabel': 'Market (Country)',
+    'searchForm.domainLabel': 'Google Domain',
+    'searchForm.deviceLabel': 'Device',
+    'searchForm.languageLabel': 'Language',
+    'searchForm.submitButton': 'Analyze Market',
+    'searchForm.submitButtonLoading': 'Analyzing Market...',
+    // Device options
+    'device.all': 'All',
+    'device.desktop': 'Desktop',
+    'device.mobile': 'Mobile',
+    'device.tablet': 'Tablet',
+    // Results Display
+    'resultsDisplay.marketAnalysisTitle': 'Market Analysis for',
+    'resultsDisplay.selectedMarket': 'Selected market',
+    'resultsDisplay.searchVolumeLabel': 'Monthly Search Volume (Estimated)',
+    'resultsDisplay.cpcLabel': 'Cost Per Click (CPC Estimated)',
+    'resultsDisplay.summaryTitle': 'Simulated Results Summary',
+    'resultsDisplay.sourcesTitle': 'Top Sources Found',
+    'resultsDisplay.seoAnalysisButton': 'Generate AI SEO Analysis',
+    'resultsDisplay.seoAnalysisButtonLoading': 'Analyzing...',
+    'resultsDisplay.adsTitle': 'Ads',
+    'resultsDisplay.organicResultsTitle': 'Organic Results',
+    'resultsDisplay.adLabel': 'Ad',
+    // Trend Chart
+    'trendChart.title': 'Search Trend (Last 5 Years)',
+    'trendChart.filter5Y': '5Y',
+    'trendChart.filter1Y': '1Y',
+    'trendChart.filter30D': '30D',
+    'trendChart.filterCustom': 'Custom',
+    'trendChart.volumeAxisLabel': 'Search Volume',
+    'trendChart.noData': 'Could not load trend data for this term.',
+    // SEO Analysis
+    'seoAnalysis.title': 'AI SEO Analysis',
+    // Chatbot
+    'chatbot.placeholder': 'Type your message...',
+    'chatbot.sendButton': 'Send',
+    // Image Editor
+    'imageEditor.title': 'AI Image Editor',
+    'imageEditor.subtitle': 'Upload an image and describe the edit you want.',
+    'imageEditor.uploadButton': 'Upload a file',
+    'imageEditor.fileTypes': 'PNG, JPG, GIF up to 10MB',
+    'imageEditor.promptPlaceholder': 'E.g., add a retro filter, remove the background...',
+    'imageEditor.submitButton': 'Apply AI Edit',
+    'imageEditor.submitButtonLoading': 'Editing...',
+    'imageEditor.originalLabel': 'Original',
+    'imageEditor.editedLabel': 'Edited',
+    'imageEditor.originalPlaceholder': 'Your image will appear here',
+    'imageEditor.editedPlaceholder': 'Your edited image will appear here',
+    // App & Common
+    'app.loading.search': 'Simulating search in the target market...',
+    'app.loading.analysis': 'Generating SEO analysis...',
+    'app.loading.image': 'Processing edit...',
+    'app.welcome.title': 'Welcome to AI Search Simulator Pro',
+    'app.welcome.subtitle': 'Use the form to analyze a search term in specific markets and get SEO insights powered by AI.',
+    'app.error.search': 'Search failed',
+    'app.error.analysis': 'Analysis failed',
+    'app.error.imageEdit': 'Editing failed',
+  },
+  es: {
+    // Header
+    'header.title': 'AI Search Simulator Pro',
+    'header.searchTab': 'Búsqueda',
+    'header.chatTab': 'Chat',
+    'header.imageEditorTab': 'Editor de Imágenes',
+    // Search Form
+    'searchForm.queryLabel': 'Término de Búsqueda',
+    'searchForm.queryPlaceholder': 'Ej: curso de marketing digital',
+    'searchForm.marketLabel': 'Mercado (País)',
+    'searchForm.domainLabel': 'Dominio de Google',
+    'searchForm.deviceLabel': 'Dispositivo',
+    'searchForm.languageLabel': 'Idioma',
+    'searchForm.submitButton': 'Analizar Mercado',
+    'searchForm.submitButtonLoading': 'Analizando Mercado...',
+    // Device options
+    'device.all': 'Todos',
+    'device.desktop': 'Escritorio',
+    'device.mobile': 'Móvil',
+    'device.tablet': 'Tableta',
+    // Results Display
+    'resultsDisplay.marketAnalysisTitle': 'Análisis de Mercado para',
+    'resultsDisplay.selectedMarket': 'Mercado seleccionado',
+    'resultsDisplay.searchVolumeLabel': 'Volumen de Búsqueda Mensual (Estimado)',
+    'resultsDisplay.cpcLabel': 'Costo Por Clic (CPC Estimado)',
+    'resultsDisplay.summaryTitle': 'Resumen de Resultados Simulados',
+    'resultsDisplay.sourcesTitle': 'Fuentes Principales Encontradas',
+    'resultsDisplay.seoAnalysisButton': 'Generar Análisis SEO con IA',
+    'resultsDisplay.seoAnalysisButtonLoading': 'Analizando...',
+    'resultsDisplay.adsTitle': 'Anuncios',
+    'resultsDisplay.organicResultsTitle': 'Resultados Orgánicos',
+    'resultsDisplay.adLabel': 'Anuncio',
+    // Trend Chart
+    'trendChart.title': 'Tendencia de Búsqueda (Últimos 5 Años)',
+    'trendChart.filter5Y': '5A',
+    'trendChart.filter1Y': '1A',
+    'trendChart.filter30D': '30D',
+    'trendChart.filterCustom': 'Personalizado',
+    'trendChart.volumeAxisLabel': 'Volumen de Búsqueda',
+    'trendChart.noData': 'No se pudieron cargar los datos de tendencia para este término.',
+    // SEO Analysis
+    'seoAnalysis.title': 'Análisis SEO con IA',
+    // Chatbot
+    'chatbot.placeholder': 'Escribe tu mensaje...',
+    'chatbot.sendButton': 'Enviar',
+    // Image Editor
+    'imageEditor.title': 'Editor de Imágenes con IA',
+    'imageEditor.subtitle': 'Sube una imagen y describe la edición que deseas.',
+    'imageEditor.uploadButton': 'Subir un archivo',
+    'imageEditor.fileTypes': 'PNG, JPG, GIF hasta 10MB',
+    'imageEditor.promptPlaceholder': 'Ej: añadir un filtro retro, quitar el fondo...',
+    'imageEditor.submitButton': 'Aplicar Edición con IA',
+    'imageEditor.submitButtonLoading': 'Editando...',
+    'imageEditor.originalLabel': 'Original',
+    'imageEditor.editedLabel': 'Editada',
+    'imageEditor.originalPlaceholder': 'Tu imagen aparecerá aquí',
+    'imageEditor.editedPlaceholder': 'Tu imagen editada aparecerá aquí',
+    // App & Common
+    'app.loading.search': 'Simulando búsqueda en el mercado objetivo...',
+    'app.loading.analysis': 'Generando análisis SEO...',
+    'app.loading.image': 'Procesando edición...',
+    'app.welcome.title': 'Bienvenido a AI Search Simulator Pro',
+    'app.welcome.subtitle': 'Usa el formulario para analizar un término de búsqueda en mercados específicos y obtener insights de SEO con el poder de la IA.',
+    'app.error.search': 'La búsqueda falló',
+    'app.error.analysis': 'El análisis falló',
+    'app.error.imageEdit': 'La edición falló',
+  },
+};
+
+
+// === Start of services/geminiService.ts content ===
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+const getSimulatedSearchResults = async (params, userLocation) => {
+  const currencyInfo = CURRENCY_MAP[params.country] || CURRENCY_MAP['ww'];
+  
+  const prompt = `
+    Atue como um especialista em SEO e simulador de Página de Resultados de Busca (SERP) do Google. Sua missão é gerar uma simulação realista de uma busca no Google para o termo "${params.query}", seguindo os parâmetros fornecidos e usando uma estratégia de busca avançada.
+
+    **Parâmetros da Simulação:**
+    - Mercado Alvo (País): ${params.country === 'ww' ? 'Análise Global' : params.location}
+    - Dispositivo: ${params.device}
+    - Idioma dos Resultados: ${params.language}
+    - Domínio do Google Utilizado: ${params.googleDomain}
+
+    **Estratégia de Busca a ser Empregada:**
+    1.  **Busca por Frase Exata:** Use aspas ("${params.query}") para encontrar menções diretas.
+    2.  **Busca Focada:** Priorize resultados de sites-chave como hotmart.com, youtube.com, e blogs relevantes.
+    3.  **Simulação de Ads:** Gere de 1 a 3 anúncios pagos (Google Ads) plausíveis que apareceriam no topo para este termo de busca.
+    4.  **Simulação Orgânica:** Gere de 5 a 8 resultados orgânicos relevantes.
+
+    **Formato da Resposta OBRIGATÓRIO:**
+    Sua resposta DEVE seguir estritamente a estrutura abaixo, usando os marcadores e separadores "|||" EXATAMENTE como especificado. Não adicione texto introdutório, conclusões ou qualquer outra formatação.
+
+    **Volume de Busca:** [Estime o volume de busca mensal para o termo]
+    **CPC Estimado:** [Estime o CPC médio em ${currencyInfo.code} e USD. Formato: ${currencyInfo.code} VALOR | USD VALOR. Ex: ${currencyInfo.code} 5.50 | USD 1.10]
+    ---SERP_START---
+    **Anúncios (Google Ads):**
+    Ad: [Título do Anúncio 1] ||| [URL de Exibição 1] ||| [URL de Destino 1] ||| [Descrição do Anúncio 1]
+    Ad: [Título do Anúncio 2] ||| [URL de Exibição 2] ||| [URL de Destino 2] ||| [Descrição do Anúncio 2]
+    **Resultados Orgânicos:**
+    Organic: [Título do Resultado 1] ||| [URL de Exibição 1] ||| [URL de Destino 1] ||| [Descrição do Resultado 1]
+    Organic: [Título do Resultado 2] ||| [URL de Exibição 2] ||| [URL de Destino 2] ||| [Descrição do Resultado 2]
+    Organic: [Título do Resultado 3] ||| [URL de Exibição 3] ||| [URL de Destino 3] ||| [Descrição do Resultado 3]
+    ---SERP_END---
+    ---SUMMARY_START---
+    [Aqui, forneça um resumo muito breve (1-2 frases) sobre os achados gerais, como a presença em plataformas de cursos ou o tipo de conteúdo dominante.]
+    ---SUMMARY_END---
+    **Dados Históricos (JSON):** [Forneça os dados de tendência em um array JSON válido. Ex: [{"date": "2023-10-01", "value": 88}, ...]]
+  `;
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }, { googleMaps: {} }],
+        toolConfig: userLocation ? {
+          retrievalConfig: {
+            latLng: {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+            }
+          }
+        } : undefined,
+      },
+    });
+
+    const fullText = response.text;
+    const searchVolumeMatch = fullText.match(/\*\*Volume de Busca:\*\*\s*(.*)/);
+    const cpcMatch = fullText.match(/\*\*CPC Estimado:\*\*\s*(.*)/);
+    const serpContentMatch = fullText.match(/---SERP_START---([\s\S]*)---SERP_END---/);
+    const summaryMatch = fullText.match(/---SUMMARY_START---([\s\S]*)---SUMMARY_END---/);
+    const historicalDataMatch = fullText.match(/\*\*Dados Históricos \(JSON\):\*\*\s*(\[.*\])/s);
+
+    const searchVolume = searchVolumeMatch ? searchVolumeMatch[1].trim() : 'Indisponível';
+    
+    let cpc = { local: 'Indisponível', usd: '' };
+    if (cpcMatch) {
+        const cpcString = cpcMatch[1].trim();
+        const cpcParts = cpcString.split('|');
+        if (cpcParts.length === 2) {
+            cpc = {
+                local: cpcParts[0].trim(),
+                usd: cpcParts[1].trim()
+            };
+        } else {
+            cpc = { local: cpcString, usd: '' };
+        }
+    }
+    
+    const serp = { ads: [], organic: [] };
+    if (serpContentMatch && serpContentMatch[1]) {
+        const lines = serpContentMatch[1].trim().split('\n');
+        lines.forEach(line => {
+            if (line.startsWith('Ad:')) {
+                const parts = line.substring(3).trim().split('|||');
+                if (parts.length === 4) {
+                    serp.ads.push({
+                        title: parts[0].trim(),
+                        displayUrl: parts[1].trim(),
+                        destinationUrl: parts[2].trim(),
+                        description: parts[3].trim(),
+                    });
+                }
+            } else if (line.startsWith('Organic:')) {
+                const parts = line.substring(8).trim().split('|||');
+                if (parts.length === 4) {
+                    serp.organic.push({
+                        title: parts[0].trim(),
+                        displayUrl: parts[1].trim(),
+                        destinationUrl: parts[2].trim(),
+                        description: parts[3].trim(),
+                    });
+                }
+            }
+        });
+    }
+
+    const summary = summaryMatch ? summaryMatch[1].trim() : (serp.ads.length === 0 && serp.organic.length === 0 ? "Não foi possível gerar um resumo dos resultados." : "");
+    
+    let historicalData = undefined;
+    if (historicalDataMatch && historicalDataMatch[1]) {
+        try {
+            historicalData = JSON.parse(historicalDataMatch[1]);
+        } catch (e) {
+            console.error("Failed to parse historical data JSON:", e);
+            historicalData = [];
+        }
+    }
+
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
+    const sources = groundingMetadata?.groundingChunks || [];
+
+    return { summary, sources, searchVolume, cpc, historicalData, serp };
+  } catch (error) {
+    console.error("Error fetching simulated search results:", error);
+    throw new Error("Não foi possível obter os resultados da busca simulada.");
+  }
+};
+
+const getSeoAnalysis = async (query, searchSummary) => {
+  const prompt = `
+    Com base no termo de busca "${query}" e no seguinte resumo de resultados de uma busca no Google:
+    ---
+    ${searchSummary}
+    ---
+    Atue como um especialista em SEO e forneça uma análise detalhada. Sua análise deve incluir:
+    1.  **Tendências de Ranking:** Identifique os tipos de conteúdo (blogs, vídeos, produtos) que estão ranqueando bem.
+    2.  **Sugestões de Otimização (SEO/SEA):** Forneça 3 a 5 dicas práticas e acionáveis para um site que deseja melhorar seu ranking para este termo.
+    3.  **Análise de Concorrência:** Comente brevemente sobre os pontos fortes dos principais resultados.
+    4.  **Previsão de Melhoria:** Discuta o impacto potencial das otimizações sugeridas.
+
+    Formate sua resposta usando markdown para clareza (títulos, listas, etc.).
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-pro",
+      contents: prompt,
+    });
+    return response.text;
+  } catch (error) {
+    console.error("Error fetching SEO analysis:", error);
+    throw new Error("Não foi possível gerar a análise de SEO.");
+  }
+};
+
+const chatInstances = {};
+
+const SYSTEM_INSTRUCTIONS = {
+  pt: 'Você é um assistente de SEO prestativo e amigável, especialista em marketing digital e análise de dados. Responda em português.',
+  en: 'You are a helpful and friendly SEO assistant, an expert in digital marketing and data analysis. Respond in English.',
+  es: 'Eres un asistente de SEO servicial y amigable, experto en marketing digital y análisis de datos. Responde en español.'
+};
+
+const sendMessageToChat = async (message, history, language) => {
+    let chat = chatInstances[language];
+    
+    if (!chat) {
+        chat = ai.chats.create({
+          model: 'gemini-2.5-flash',
+          history: history.slice(0, -1).map(msg => ({ 
+              role: msg.role,
+              parts: [{text: msg.content}]
+          })),
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTIONS[language],
+          },
+        });
+        chatInstances[language] = chat;
+    }
+    
+    try {
+        const response = await chat.sendMessage({ message });
+        return response.text;
+    } catch (error) {
+        console.error("Error sending chat message:", error);
+        delete chatInstances[language];
+        throw new Error("Não foi possível comunicar com o chatbot.");
+    }
+};
+
+const editImage = async (base64Image, mimeType, prompt) => {
+    const imagePart = {
+      inlineData: {
+        data: base64Image,
+        mimeType: mimeType,
+      },
+    };
+
+    const textPart = {
+      text: prompt,
+    };
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [imagePart, textPart],
+        },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
+      });
+
+      for (const part of response.candidates?.[0]?.content.parts || []) {
+        if (part.inlineData) {
+          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
+      }
+      throw new Error("Nenhuma imagem foi gerada na resposta.");
+    } catch (error) {
+        console.error("Error editing image:", error);
+        throw new Error("Não foi possível editar a imagem.");
+    }
+};
+
+
+// === Start of components/Icon.tsx content ===
+const ICONS = {
+  search: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" }),
+  analyze: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" }),
+  chat: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" }),
+  edit: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" }),
+  upload: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" }),
+  arrow: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M14 5l7 7m0 0l-7 7m7-7H3" }),
+  globe: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2h1a2 2 0 002-2v-1a2 2 0 012-2h1.945M7.88 21.012A9 9 0 0012.07 23a9 9 0 004.19-1.988M21 12a9 9 0 11-18 0 9 9 0 0118 0z" }),
+  dollar: React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8v1m0 11v1m-6-5h12" })
+};
+
+const Icon = ({ icon, className = 'w-6 h-6' }) => {
+  return React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", className, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" }, ICONS[icon]);
+};
+
+
+// === Start of components/LoadingSpinner.tsx content ===
+const LoadingSpinner = ({ message }) => {
+  return React.createElement('div', { className: "flex flex-col items-center justify-center p-8 bg-white/50 dark:bg-gray-800/50 rounded-lg backdrop-blur-sm" },
+    React.createElement('div', { className: "w-16 h-16 border-4 border-dashed rounded-full animate-spin border-blue-500 dark:border-blue-400" }),
+    React.createElement('p', { className: "mt-4 text-lg font-semibold text-gray-700 dark:text-gray-300" }, message)
+  );
+};
+
+
+// === Start of components/TrendChart.tsx content ===
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  TimeScale
+);
+
+const TrendChart = ({ data, t }) => {
+  const [filter, setFilter] = useState('5Y');
+  const [customRange, setCustomRange] = useState({
+      start: '',
+      end: ''
+  });
+
+  const filteredData = useMemo(() => {
+    const now = new Date();
+    let startDate;
+
+    switch (filter) {
+      case '1Y':
+        startDate = subYears(now, 1);
+        break;
+      case '30D':
+        startDate = subDays(now, 30);
+        break;
+      case 'CUSTOM':
+          if (customRange.start && customRange.end) {
+              const customStartDate = parseISO(customRange.start);
+              const customEndDate = parseISO(customRange.end);
+              return data.filter(d => {
+                  const pointDate = parseISO(d.date);
+                  return pointDate >= customStartDate && pointDate <= customEndDate;
+              });
+          }
+          return []; // Return empty if custom range is not fully set
+      case '5Y':
+      default:
+        startDate = subYears(now, 5);
+        break;
+    }
+     return data.filter(d => {
+        try {
+            return parseISO(d.date) >= startDate;
+        } catch (e) {
+            console.warn(`Invalid date format for point:`, d);
+            return false;
+        }
+     });
+  }, [data, filter, customRange]);
+  
+  const chartData = {
+    labels: filteredData.map(d => d.date),
+    datasets: [
+      {
+        label: t('trendChart.volumeAxisLabel'),
+        data: filteredData.map(d => d.value),
+        borderColor: 'rgb(59, 130, 246)',
+        backgroundColor: 'rgba(59, 130, 246, 0.5)',
+        tension: 0.1,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+      },
+    ],
+  };
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+      },
+      title: {
+        display: true,
+        text: t('trendChart.title'),
+        font: {
+            size: 16
+        }
+      },
+    },
+    scales: {
+        x: {
+            type: 'time',
+            time: {
+                unit: 'month',
+            },
+            ticks: {
+                maxRotation: 45,
+                minRotation: 45,
+            }
+        },
+        y: {
+            beginAtZero: true,
+            title: {
+                display: true,
+                text: t('trendChart.volumeAxisLabel')
+            }
+        }
+    }
+  };
+
+  const FilterButton = ({ label, value }) => (
+    React.createElement('button', {
+      onClick: () => setFilter(value),
+      className: `px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+        filter === value
+          ? 'bg-blue-600 text-white'
+          : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600'
+      }`
+    }, label)
+  );
+
+  return React.createElement('div', { className: "bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow space-y-4" },
+    React.createElement('div', { className: "flex flex-wrap items-center gap-2" },
+      React.createElement(FilterButton, { label: t('trendChart.filter5Y'), value: "5Y" }),
+      React.createElement(FilterButton, { label: t('trendChart.filter1Y'), value: "1Y" }),
+      React.createElement(FilterButton, { label: t('trendChart.filter30D'), value: "30D" }),
+      React.createElement(FilterButton, { label: t('trendChart.filterCustom'), value: "CUSTOM" })
+    ),
+    filter === 'CUSTOM' && React.createElement('div', { className: "flex items-center gap-2 text-sm" },
+      React.createElement('input', { 
+        type: "date", 
+        value: customRange.start,
+        onChange: e => setCustomRange(prev => ({...prev, start: e.target.value})),
+        className: "bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
+      }),
+      React.createElement('span', null, "-"),
+      React.createElement('input', { 
+        type: "date", 
+        value: customRange.end,
+        onChange: e => setCustomRange(prev => ({...prev, end: e.target.value})),
+        className: "bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
+      })
+    ),
+    React.createElement('div', { className: "relative h-64 md:h-80" },
+      React.createElement(Line, { options, data: chartData })
+    )
+  );
+};
+
+
+// === Start of components/Header.tsx content ===
+const LANGUAGE_OPTIONS = [
+    { id: 'pt', label: '🇧🇷 PT' },
+    { id: 'en', label: '🇺🇸 EN' },
+    { id: 'es', label: '🇪🇸 ES' },
+];
+
+const Header = ({ activeTab, setActiveTab, uiLanguage, setUiLanguage, t }) => {
+    
+    const TABS = [
+        { name: t('header.searchTab'), key: 'Busca', icon: 'search' },
+        { name: t('header.chatTab'), key: 'Chat', icon: 'chat' },
+        { name: t('header.imageEditorTab'), key: 'Editor de Imagem', icon: 'edit' },
+    ];
+
+    return React.createElement('header', { className: "bg-white dark:bg-gray-800 shadow-md sticky top-0 z-20" },
+        React.createElement('div', { className: "container mx-auto px-4 sm:px-6 lg:px-8" },
+            React.createElement('div', { className: "flex items-center justify-between h-16" },
+                React.createElement('div', { className: "flex items-center" },
+                    React.createElement(Icon, { icon: "globe", className: "h-8 w-8 text-blue-600 dark:text-blue-400" }),
+                    React.createElement('h1', { className: "ml-3 text-2xl font-bold text-gray-800 dark:text-white" }, t('header.title'))
+                ),
+                React.createElement('div', { className: "flex items-center" },
+                    React.createElement('nav', { className: "hidden md:flex space-x-2 mr-4" },
+                        TABS.map((tab) => React.createElement('button', {
+                            key: tab.key,
+                            onClick: () => setActiveTab(tab.key),
+                            className: `flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 ease-in-out ${
+                                activeTab === tab.key
+                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white'
+                            }`
+                        }, React.createElement(Icon, { icon: tab.icon, className: "mr-2 h-5 w-5" }), tab.name))
+                    ),
+                    React.createElement('div', { className: "flex space-x-1 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg" },
+                        LANGUAGE_OPTIONS.map(opt => React.createElement('button', {
+                            key: opt.id,
+                            onClick: () => setUiLanguage(opt.id),
+                            className: `px-2 py-1 text-sm font-medium rounded-md transition-colors duration-200 ${
+                              uiLanguage === opt.id 
+                                ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-300 shadow' 
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
+                            }`
+                        }, opt.label))
+                    )
+                )
+            ),
+            React.createElement('nav', { className: "md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-around p-1" },
+                 TABS.map((tab) => React.createElement('button', {
+                    key: tab.key,
+                    onClick: () => setActiveTab(tab.key),
+                    className: `flex flex-col items-center justify-center w-full py-2 rounded-md text-xs font-medium transition-colors duration-200 ease-in-out ${
+                        activeTab === tab.key
+                            ? 'text-blue-600 dark:text-blue-400'
+                            : 'text-gray-500 dark:text-gray-400'
+                    }`
+                }, React.createElement(Icon, { icon: tab.icon, className: "h-6 w-6 mb-1" }), tab.name))
+            )
+        )
+    );
+};
+
+
+// === Start of components/SearchForm.tsx content ===
+const SearchForm = ({ onSearch, loading, t }) => {
+  const [params, setParams] = useState({
+    query: '',
+    location: 'Brasil',
+    device: 'desktop', // Internal state uses key
+    language: 'pt',
+    country: 'br',
+    googleDomain: 'google.com.br',
+  });
+
+  const handleCountryChange = (e) => {
+    const { name, value } = e.target;
+    const selectedMarket = HOTMART_MARKETS.find(m => m.value === value);
+    if (selectedMarket) {
+      setParams(prev => ({
+        ...prev,
+        [name]: value,
+        googleDomain: selectedMarket.domain,
+        location: selectedMarket.label,
+      }));
+    }
+  };
+  
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setParams(prev => ({ ...prev, [name]: value }));
+  };
+
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (params.query.trim()) {
+      const selectedDeviceObject = DEVICES.find(d => d.value === params.device);
+      const translatedDevice = selectedDeviceObject ? t(selectedDeviceObject.labelKey) : params.device;
+
+      onSearch({
+        ...params,
+        device: translatedDevice,
+      });
+    }
+  };
+  
+  return React.createElement('form', { onSubmit: handleSubmit, className: "space-y-4 p-4 bg-white dark:bg-gray-800 rounded-lg shadow" },
+    React.createElement('div', null,
+      React.createElement('label', { htmlFor: "query", className: "block text-sm font-medium text-gray-700 dark:text-gray-300" }, t('searchForm.queryLabel')),
+      React.createElement('div', { className: "mt-1 relative rounded-md shadow-sm" },
+        React.createElement('div', { className: "absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none" },
+          React.createElement(Icon, { icon: "search", className: "h-5 w-5 text-gray-400" })
+        ),
+        React.createElement('input', {
+          type: "text",
+          name: "query",
+          id: "query",
+          value: params.query,
+          onChange: handleChange,
+          className: "focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white",
+          placeholder: t('searchForm.queryPlaceholder'),
+          required: true
+        })
+      )
+    ),
+    React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+      React.createElement('div', null,
+        React.createElement('label', { htmlFor: "country", className: "block text-sm font-medium text-gray-700 dark:text-gray-300" }, t('searchForm.marketLabel')),
+        React.createElement('select', {
+          id: "country",
+          name: "country",
+          value: params.country,
+          onChange: handleCountryChange,
+          className: "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+        }, HOTMART_MARKETS.map(opt => React.createElement('option', { key: opt.value, value: opt.value }, opt.label)))
+      ),
+      React.createElement('div', null,
+        React.createElement('label', { htmlFor: "googleDomain", className: "block text-sm font-medium text-gray-700 dark:text-gray-300" }, t('searchForm.domainLabel')),
+        React.createElement('input', {
+          type: "text",
+          name: "googleDomain",
+          id: "googleDomain",
+          value: params.googleDomain,
+          readOnly: true,
+          className: "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md bg-gray-100 dark:bg-gray-900 sm:text-sm cursor-not-allowed"
+        })
+      ),
+      React.createElement('div', null,
+        React.createElement('label', { htmlFor: "device", className: "block text-sm font-medium text-gray-700 dark:text-gray-300" }, t('searchForm.deviceLabel')),
+        React.createElement('select', {
+          id: "device",
+          name: "device",
+          value: params.device,
+          onChange: handleChange,
+          className: "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+        }, DEVICES.map(opt => React.createElement('option', { key: opt.value, value: opt.value }, t(opt.labelKey))))
+      ),
+      React.createElement('div', null,
+        React.createElement('label', { htmlFor: "language", className: "block text-sm font-medium text-gray-700 dark:text-gray-300" }, t('searchForm.languageLabel')),
+        React.createElement('select', {
+          id: "language",
+          name: "language",
+          value: params.language,
+          onChange: handleChange,
+          className: "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+        }, LANGUAGES.map(opt => React.createElement('option', { key: opt.value, value: opt.value }, opt.label)))
+      )
+    ),
+    React.createElement('button', {
+      type: "submit",
+      disabled: loading || !params.query.trim(),
+      className: "w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-not-allowed dark:disabled:bg-blue-800 transition-colors"
+    },
+      loading ? t('searchForm.submitButtonLoading') : t('searchForm.submitButton'),
+      !loading && React.createElement(Icon, { icon: "arrow", className: "ml-2 w-5 h-5" })
+    )
+  );
+};
+
+
+// === Start of components/ResultsDisplay.tsx content ===
+const ResultsDisplay = ({ result, query, location, onAnalyze, loadingAnalysis, t }) => {
+  const hasTrendData = result.historicalData && result.historicalData.length > 0;
+  const hasSerpData = result.serp && (result.serp.ads.length > 0 || result.serp.organic.length > 0);
+
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', { className: "bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow space-y-6" },
+      React.createElement('div', { className: "pb-4 border-b border-gray-200 dark:border-gray-700" },
+        React.createElement('h2', { className: "text-xl sm:text-2xl font-bold text-gray-900 dark:text-white" }, `${t('resultsDisplay.marketAnalysisTitle')} "${query}"`),
+        React.createElement('p', { className: "text-md text-gray-500 dark:text-gray-400" }, `${t('resultsDisplay.selectedMarket')}: `, React.createElement('span', { className: "font-semibold text-gray-700 dark:text-gray-300" }, location))
+      ),
+      React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+        React.createElement('div', { className: "bg-blue-50 dark:bg-blue-900/50 p-5 rounded-xl flex items-start space-x-4 ring-1 ring-blue-200 dark:ring-blue-800" },
+          React.createElement('div', { className: "bg-blue-100 dark:bg-blue-900 p-3 rounded-full" }, React.createElement(Icon, { icon: "search", className: "h-6 w-6 text-blue-600 dark:text-blue-300" })),
+          React.createElement('div', null,
+            React.createElement('p', { className: "text-sm font-medium text-blue-800 dark:text-blue-300" }, t('resultsDisplay.searchVolumeLabel')),
+            React.createElement('p', { className: "text-2xl font-bold text-blue-900 dark:text-white mt-1" }, result.searchVolume || 'N/A')
+          )
+        ),
+        React.createElement('div', { className: "bg-green-50 dark:bg-green-900/50 p-5 rounded-xl flex items-start space-x-4 ring-1 ring-green-200 dark:ring-green-800" },
+          React.createElement('div', { className: "bg-green-100 dark:bg-green-900 p-3 rounded-full" }, React.createElement(Icon, { icon: "dollar", className: "h-6 w-6 text-green-600 dark:text-green-300" })),
+          React.createElement('div', null,
+            React.createElement('p', { className: "text-sm font-medium text-green-800 dark:text-green-300" }, t('resultsDisplay.cpcLabel')),
+            React.createElement('p', { className: "text-2xl font-bold text-green-900 dark:text-white mt-1" }, result.cpc?.local || 'N/A'),
+            React.createElement('p', { className: "text-sm text-gray-500 dark:text-gray-400 -mt-1" }, result.cpc?.usd || '')
+          )
+        )
+      ),
+      hasSerpData ? (
+        React.createElement('div', { className: "space-y-6" },
+          result.serp.ads.length > 0 && React.createElement('div', null,
+            React.createElement('h3', { className: "text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3" }, t('resultsDisplay.adsTitle')),
+            React.createElement('div', { className: "space-y-4" },
+              result.serp.ads.map((ad, index) => React.createElement('div', { key: `ad-${index}`, className: "p-4 bg-gray-50 dark:bg-gray-900/50 rounded-md ring-1 ring-gray-200 dark:ring-gray-700" },
+                React.createElement('div', { className: "flex items-center text-sm" },
+                  React.createElement(Icon, { icon: "dollar", className: "h-5 w-5 text-green-600 dark:text-green-400 mr-2 flex-shrink-0" }),
+                  React.createElement('span', { className: "font-bold mr-2" }, t('resultsDisplay.adLabel')),
+                  React.createElement('a', { href: ad.destinationUrl, target: "_blank", rel: "noopener noreferrer", className: "text-gray-700 dark:text-gray-300 truncate hover:underline" }, ad.displayUrl)
+                ),
+                React.createElement('a', { href: ad.destinationUrl, target: "_blank", rel: "noopener noreferrer", className: "block mt-1 text-lg text-blue-700 hover:underline dark:text-blue-400" }, ad.title),
+                React.createElement('p', { className: "mt-1 text-sm text-gray-600 dark:text-gray-400" }, ad.description)
+              ))
+            )
+          ),
+          result.serp.organic.length > 0 && React.createElement('div', { className: result.serp.ads.length > 0 ? "pt-6 border-t border-gray-200 dark:border-gray-700" : "" },
+            React.createElement('h3', { className: "text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3" }, t('resultsDisplay.organicResultsTitle')),
+            React.createElement('div', { className: "space-y-5" },
+              result.serp.organic.map((organic, index) => React.createElement('div', { key: `organic-${index}` },
+                React.createElement('a', { href: organic.destinationUrl, target: "_blank", rel: "noopener noreferrer", className: "text-sm text-gray-700 dark:text-gray-300 truncate hover:underline flex items-center" },
+                  React.createElement(Icon, { icon: "globe", className: "h-4 w-4 mr-2 flex-shrink-0" }),
+                  organic.displayUrl
+                ),
+                React.createElement('a', { href: organic.destinationUrl, target: "_blank", rel: "noopener noreferrer", className: "block mt-1 text-xl text-blue-600 hover:underline dark:text-blue-400" }, organic.title),
+                React.createElement('p', { className: "mt-1 text-sm text-gray-600 dark:text-gray-400" }, organic.description)
+              ))
+            )
+          )
+        )
+      ) : (
+        result.summary && React.createElement('div', null,
+          React.createElement('h3', { className: "text-lg font-semibold text-gray-800 dark:text-gray-200" }, t('resultsDisplay.summaryTitle')),
+          React.createElement('div', { className: "mt-2 prose prose-blue dark:prose-invert max-w-none prose-sm sm:prose-base bg-gray-50 dark:bg-gray-900/50 p-4 rounded-md" },
+            React.createElement(ReactMarkdown, null, result.summary)
+          )
+        )
+      ),
+      React.createElement('div', { className: "pt-6 border-t border-gray-200 dark:border-gray-700" },
+        React.createElement('button', {
+          onClick: () => onAnalyze(query, result.summary),
+          disabled: loadingAnalysis,
+          className: "w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300 dark:disabled:bg-indigo-800 transition-colors"
+        },
+          React.createElement(Icon, { icon: "analyze", className: "mr-2 h-5 w-5" }),
+          loadingAnalysis ? t('resultsDisplay.seoAnalysisButtonLoading') : t('resultsDisplay.seoAnalysisButton')
+        )
+      )
+    ),
+    hasTrendData ? (
+      React.createElement(TrendChart, { data: result.historicalData, t: t })
+    ) : result.historicalData && ( 
+      React.createElement('div', { className: "bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow text-center" },
+        React.createElement('h3', { className: "text-lg font-semibold text-gray-800 dark:text-gray-200" }, t('trendChart.title')),
+        React.createElement('p', { className: "mt-2 text-gray-500 dark:text-gray-400" }, t('trendChart.noData'))
+      )
+    )
+  );
+};
+
+
+// === Start of components/Chatbot.tsx content ===
+const CHATBOT_GREETINGS = {
+    pt: 'Olá! Sou seu assistente de SEO. Como posso ajudar a otimizar sua estratégia de busca hoje?',
+    en: 'Hello! I am your SEO assistant. How can I help you optimize your search strategy today?',
+    es: '¡Hola! Soy tu asistente de SEO. ¿Cómo puedo ayudarte a optimizar tu estrategia de búsqueda hoy?'
+};
+
+const CHATBOT_LANGUAGE_OPTIONS = [
+    { id: 'pt', label: 'Português' },
+    { id: 'en', label: 'English' },
+    { id: 'es', label: 'Español' },
+];
+
+const Chatbot = ({ t }) => {
+  const [language, setLanguage] = useState('pt');
+  const [messages, setMessages] = useState([
+    { role: 'model', content: CHATBOT_GREETINGS.pt }
+  ]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(scrollToBottom, [messages]);
+
+  useEffect(() => {
+    setMessages([{ role: 'model', content: CHATBOT_GREETINGS[language] }]);
+    setInput('');
+  }, [language]);
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (input.trim() === '' || loading) return;
+
+    const userMessage = { role: 'user', content: input };
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const history = [...messages, userMessage];
+      const modelResponse = await sendMessageToChat(input, history, language);
+      setMessages(prev => [...prev, { role: 'model', content: modelResponse }]);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Ocorreu um erro.';
+      setMessages(prev => [...prev, { role: 'model', content: `Desculpe, algo deu errado: ${errorMessage}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return React.createElement('div', { className: "flex flex-col h-[calc(100vh-10rem)] bg-white dark:bg-gray-800 rounded-lg shadow-lg" },
+    React.createElement('div', { className: "p-2 border-b border-gray-200 dark:border-gray-700 flex justify-center" },
+      React.createElement('div', { className: "flex space-x-1 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg" },
+        CHATBOT_LANGUAGE_OPTIONS.map(opt => React.createElement('button', {
+          key: opt.id,
+          onClick: () => setLanguage(opt.id),
+          className: `px-3 py-1 text-sm font-medium rounded-md transition-colors duration-200 ${
+            language === opt.id 
+              ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-300 shadow' 
+              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700/50'
+          }`
+        }, opt.label))
+      )
+    ),
+    React.createElement('div', { className: "flex-1 p-4 overflow-y-auto" },
+      React.createElement('div', { className: "space-y-4" },
+        messages.map((msg, index) => React.createElement('div', { key: index, className: `flex items-start ${msg.role === 'user' ? 'justify-end' : 'justify-start'}` },
+          React.createElement('div', { className: `max-w-xs md:max-w-md lg:max-w-lg px-4 py-2 rounded-lg ${
+              msg.role === 'user' 
+                ? 'bg-blue-500 text-white rounded-br-none' 
+                : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 rounded-bl-none'
+            }`},
+            React.createElement('div', { className: "prose prose-sm dark:prose-invert max-w-none" }, React.createElement(ReactMarkdown, null, msg.content))
+          )
+        )),
+        loading && React.createElement('div', { className: "flex justify-start" },
+          React.createElement('div', { className: "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg px-4 py-2 rounded-bl-none" },
+            React.createElement('div', { className: "flex items-center" },
+              React.createElement('div', { className: "w-2 h-2 bg-gray-500 rounded-full animate-bounce", style: { animationDelay: '0s' } }),
+              React.createElement('div', { className: "w-2 h-2 bg-gray-500 rounded-full animate-bounce ml-1", style: { animationDelay: '0.1s' } }),
+              React.createElement('div', { className: "w-2 h-2 bg-gray-500 rounded-full animate-bounce ml-1", style: { animationDelay: '0.2s' } })
+            )
+          )
+        ),
+        React.createElement('div', { ref: messagesEndRef })
+      )
+    ),
+    React.createElement('div', { className: "p-4 border-t border-gray-200 dark:border-gray-700" },
+      React.createElement('form', { onSubmit: handleSend, className: "flex space-x-2" },
+        React.createElement('input', {
+          type: "text",
+          value: input,
+          onChange: e => setInput(e.target.value),
+          placeholder: t('chatbot.placeholder'),
+          disabled: loading,
+          className: "flex-1 p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+        }),
+        React.createElement('button', { type: "submit", disabled: loading || !input.trim(), className: "px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300 dark:disabled:bg-blue-800" }, t('chatbot.sendButton'))
+      )
+    )
+  );
+};
+
+
+// === Start of components/ImageEditor.tsx content ===
+const ImageEditor = ({ t }) => {
+  const [originalImage, setOriginalImage] = useState(null);
+  const [originalMimeType, setOriginalMimeType] = useState('');
+  const [editedImage, setEditedImage] = useState(null);
+  const [prompt, setPrompt] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const fileToBase64 = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = error => reject(error);
+    });
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setEditedImage(null);
+      setError(null);
+      setOriginalImage(URL.createObjectURL(file));
+      setOriginalMimeType(file.type);
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!originalImage || !prompt.trim() || !originalMimeType) {
+      setError("Por favor, carregue uma imagem e insira um comando de edição.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setEditedImage(null);
+
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) {
+      setError("Arquivo não encontrado.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const base64Image = await fileToBase64(file);
+      const result = await editImage(base64Image, originalMimeType, prompt);
+      setEditedImage(result);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ocorreu um erro desconhecido.';
+      setError(`${t('app.error.imageEdit')}: ${errorMessage}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return React.createElement('div', { className: "p-4 sm:p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg space-y-6" },
+    React.createElement('div', { className: "text-center" },
+      React.createElement('h2', { className: "text-2xl font-bold text-gray-900 dark:text-white" }, t('imageEditor.title')),
+      React.createElement('p', { className: "mt-2 text-gray-600 dark:text-gray-400" }, t('imageEditor.subtitle'))
+    ),
+    React.createElement('div', { className: "space-y-4" },
+      React.createElement('div', { 
+          onClick: () => fileInputRef.current?.click(),
+          className: "cursor-pointer mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-md"
+      },
+        React.createElement('div', { className: "space-y-1 text-center" },
+          React.createElement(Icon, { icon: "upload", className: "mx-auto h-12 w-12 text-gray-400" }),
+          React.createElement('div', { className: "flex text-sm text-gray-600 dark:text-gray-400" },
+            React.createElement('span', { className: "relative bg-white dark:bg-gray-800 rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500" },
+              t('imageEditor.uploadButton')
+            ),
+            React.createElement('input', { ref: fileInputRef, id: "file-upload", name: "file-upload", type: "file", className: "sr-only", accept: "image/*", onChange: handleImageUpload })
+          ),
+          React.createElement('p', { className: "text-xs text-gray-500 dark:text-gray-500" }, t('imageEditor.fileTypes'))
+        )
+      ),
+      React.createElement('input', {
+        type: "text",
+        value: prompt,
+        onChange: e => setPrompt(e.target.value),
+        placeholder: t('imageEditor.promptPlaceholder'),
+        className: "focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+      }),
+      React.createElement('button', {
+        onClick: handleEdit,
+        disabled: loading || !originalImage || !prompt.trim(),
+        className: "w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 dark:disabled:bg-blue-800"
+      },
+        React.createElement(Icon, { icon: "edit", className: "mr-2 h-5 w-5" }),
+        loading ? t('imageEditor.submitButtonLoading') : t('imageEditor.submitButton')
+      )
+    ),
+    error && React.createElement('div', { className: "text-red-500 text-sm p-3 bg-red-100 dark:bg-red-900/50 rounded-md" }, error),
+    React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4 items-center" },
+      React.createElement('div', { className: "text-center" },
+        React.createElement('h3', { className: "font-semibold text-gray-700 dark:text-gray-300" }, t('imageEditor.originalLabel')),
+        originalImage ? React.createElement('img', { src: originalImage, alt: "Original", className: "mt-2 rounded-lg shadow-md mx-auto max-h-96" }) : React.createElement('div', { className: "mt-2 h-64 bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center text-gray-500" }, t('imageEditor.originalPlaceholder'))
+      ),
+      React.createElement('div', { className: "text-center" },
+        React.createElement('h3', { className: "font-semibold text-gray-700 dark:text-gray-300" }, t('imageEditor.editedLabel')),
+        React.createElement('div', { className: "mt-2 h-full min-h-[16rem] bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center text-gray-500" },
+          loading ? React.createElement(LoadingSpinner, { message: t('app.loading.image') }) : (editedImage ? React.createElement('img', { src: editedImage, alt: "Edited", className: "rounded-lg shadow-md mx-auto max-h-96" }) : t('imageEditor.editedPlaceholder'))
+        )
+      )
+    )
+  );
+};
+
+
+// === Start of App.tsx content ===
+const App = () => {
+  const [activeTab, setActiveTab] = useState('Busca');
+  const [uiLanguage, setUiLanguage] = useState('pt');
+  const [loading, setLoading] = useState(false);
+  const [loadingAnalysis, setLoadingAnalysis] = useState(false);
+  const [error, setError] = useState(null);
+  const [searchParams, setSearchParams] = useState(null);
+  const [searchResult, setSearchResult] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+
+  const t = useCallback((key) => {
+    return translations[uiLanguage][key] || key;
+  }, [uiLanguage]);
+
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      (error) => {
+        console.warn("Could not get user location:", error.message);
+      }
+    );
+  }, []);
+
+  const handleSearch = async (params) => {
+    setLoading(true);
+    setError(null);
+    setSearchResult(null);
+    setAnalysisResult(null);
+    setSearchParams(params);
+    setActiveTab('Busca');
+
+    try {
+      const result = await getSimulatedSearchResults(params, userLocation);
+      setSearchResult(result);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      setError(`${t('app.error.search')}: ${errorMessage}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnalysis = async (query, summary) => {
+    setLoadingAnalysis(true);
+    setError(null);
+    setAnalysisResult(null);
+
+    try {
+      const result = await getSeoAnalysis(query, summary);
+      setAnalysisResult(result);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      setError(`${t('app.error.analysis')}: ${errorMessage}`);
+    } finally {
+      setLoadingAnalysis(false);
+    }
+  };
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'Busca':
+        return React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
+          React.createElement('div', { className: "lg:col-span-1" },
+            React.createElement(SearchForm, { onSearch: handleSearch, loading, t })
+          ),
+          React.createElement('div', { className: "lg:col-span-2 space-y-6" },
+            loading && React.createElement(LoadingSpinner, { message: t('app.loading.search') }),
+            error && React.createElement('div', { className: "text-red-500 text-sm p-3 bg-red-100 dark:bg-red-900/50 rounded-md" }, error),
+            searchResult && searchParams && React.createElement(React.Fragment, null,
+              React.createElement(ResultsDisplay, { 
+                result: searchResult, 
+                query: searchParams.query,
+                location: searchParams.location,
+                onAnalyze: handleAnalysis,
+                loadingAnalysis: loadingAnalysis,
+                t
+              }),
+              loadingAnalysis && React.createElement(LoadingSpinner, { message: t('app.loading.analysis') }),
+              analysisResult && React.createElement('div', { className: "bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow" },
+                React.createElement('h2', { className: "text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-4" }, t('seoAnalysis.title')),
+                React.createElement('div', { className: "prose prose-blue dark:prose-invert max-w-none prose-sm sm:prose-base" },
+                  React.createElement(ReactMarkdown, null, analysisResult)
+                )
+              )
+            ),
+            !loading && !searchResult && React.createElement('div', { className: "text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow" },
+              React.createElement('h3', { className: "text-lg font-semibold text-gray-700 dark:text-gray-300" }, t('app.welcome.title')),
+              React.createElement('p', { className: "mt-2 text-gray-500 dark:text-gray-400" }, t('app.welcome.subtitle'))
+            )
+          )
+        );
+      case 'Chat':
+        return React.createElement(Chatbot, { t });
+      case 'Editor de Imagem':
+        return React.createElement(ImageEditor, { t });
+      default:
+        return
